@@ -1,34 +1,38 @@
-library(corrplot)
+---
+  title: "VegVisions-HWSMidterm"
+author: "Sacha Jellinek"
+date: "20/06/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+  
+  ```{r setup, include=FALSE, warning=FALSE}
+library(sf)
+library(tmap)
+library(skimr)
+library(visdat)
+library(lubridate) # for as_date()
 library(tidyverse)
-library(tidyr)
-library(ggthemes)
 library(viridis)
-library(sjPlot)
-library(glmmTMB)
-library(multcomp)
-library(car)
-library(corrplot)
-library(tidyboot)
-library(janitor)
-library(qwraps2)
-library(CGPfunctions)
-library(sjPlot)
-library(insight)
-library(tibble)
-library(pwr)
-library(nlme)
-library(MuMIn)
-library(gridExtra)
-library(grid)
-library(lattice)
-library(car)
-library(ordinal)
-library(RVAideMemoire)
-library(emmeans)
-library(multcompView)
-library(rcompanion)
+library(ggrepel)
+library(ggspatial)
+library(xlsx)
+#library(s2)
+library(tiff)
+library(raster)
+#library(wesanderson)
 
-setwd("//mwc.melbournewater.com.au/DFS/Users/MEL/jellines/Sacha_MelbWater/ROMP Monitoring/Survival monitoring_2018_19/Analysis")
+```
+
+
+
+```{Loading data and shp files, r warning=FALSE}
+## VegVisions data for HWS Mid-term
+This script:    
+  i) reads in, explores and tidies Survivorship data collected by SJellinek Nov 2021
+
+Mon_data <- st_read("//research-cifs/2200-werg/wergProj/ROMP_Survivorship_2021/Data/survival_data_180322.csv")
 
 Mon_data <- read.csv(file="survival_data_180322.csv",na.strings=c("", "NA"),sep=",",head=TRUE)
 
