@@ -1,0 +1,261 @@
+library(corrplot)
+library(tidyverse)
+library(tidyr)
+library(ggthemes)
+library(viridis)
+library(sjPlot)
+library(glmmTMB)
+library(multcomp)
+library(car)
+library(corrplot)
+library(tidyboot)
+library(janitor)
+library(qwraps2)
+library(CGPfunctions)
+library(sjPlot)
+library(insight)
+library(tibble)
+library(pwr)
+library(nlme)
+library(MuMIn)
+library(gridExtra)
+library(grid)
+library(lattice)
+library(car)
+library(ordinal)
+library(RVAideMemoire)
+library(emmeans)
+library(multcompView)
+library(rcompanion)
+
+setwd("//mwc.melbournewater.com.au/DFS/Users/MEL/jellines/Sacha_MelbWater/ROMP Monitoring/Survival monitoring_2018_19/Analysis")
+
+Mon_data <- read.csv(file="survival_data_180322.csv",na.strings=c("", "NA"),sep=",",head=TRUE)
+
+str(Mon_data)
+names(Mon_data)
+
+Mon_data <- Mon_data %>% 
+  mutate(weeds2 = (weeds/100))
+
+sp_abun1 <- Mon_data %>% 
+  group_by(site, catchment, belt, lifeform, pests, weeds2, guard) %>%
+  summarise_at(vars(total, alive), tibble::lst(mean, median))
+summaryabun <- sp_abun1 %>% mutate(percent=alive_mean/total_mean)
+summaryabun
+
+sp_abun1 <- summaryabun %>% 
+  group_by(catchment) %>%
+  mutate(Count = n()) %>%
+  summarise_at(vars(percent), funs(mean, sd, se=sd(.)/sqrt(n())))
+sp_abun1
+
+#Bar plot of species survival by catchment
+
+fig1 <- ggplot(sp_abun1, aes(x = reorder(catchment, -mean), y = mean)) +
+  geom_bar(position=position_dodge(), stat="identity") +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), 
+                width=.2,
+                position=position_dodge(.9)) +
+  labs(y = "Percent survival per site", x = "Melbourne Water Catchment") +
+  theme_classic() + theme(legend.position = c(0.8, 0.8)) +
+  theme(axis.text.x = element_text(size = 9, angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 9), axis.title.x = element_text(size=9),
+        axis.title.y = element_text(size=9), legend.title=element_text(size=9), 
+        legend.text=element_text(size=9))
+
+fig1
+
+#  factors in the model
+summaryabun$catchment <- as.factor(summaryabun$catchment)
+summaryabun$site <- as.factor(summaryabun$site)
+summaryabun$guard <- as.factor(summaryabun$guard)
+summaryabun$pests <- as.factor(summaryabun$pests)
+summaryabun$lifeform <- as.factor(summaryabun$lifeform)
+str(summaryabun)
+
+lmecon <- glmmTMB((percent + 0.01)/1.02 ~ catchment + guard + pests + weeds2 + (1|site), data = summaryabun, family = 'beta_family')
+summary(lmecon) # change in condition 
+r.squaredGLMM(lmecon)
+plot_model(lmecon)
+coef(lmecon)
+
+Lfmodel = lm(percent ~ catchment, data = summaryabun)
+Anova(Lfmodel)
+marginal = lsmeans(Lfmodel, ~ catchment)
+CLD = cld(marginal, alpha=0.05, Letters=letters, adjust="tukey")
+CLD
+CLD$.group=gsub(" ", "", CLD$.group)
+
+
+# identify variables
+Mon_data$height <- as.numeric(Mon_data$height)
+
+heightdata <- Mon_data %>% 
+  group_by(site, catchment, belt, lifeform, species, pests, weeds2, guard) %>%
+  summarise_at(vars(height), tibble::lst(mean, median), na.rm = TRUE)
+heightdata <- filter(heightdata, lifeform != 'Forb')
+heightdata <- filter(heightdata, lifeform != 'Tussock grass')
+heightdata <- filter(heightdata, lifeform != 'Fern')
+# graph raw heights using boxplots?
+
+heightfig <- ggplot(
+  data = heightdata, aes(x = reorder(catchment, -mean), y = mean, fill = lifeform)) +
+  geom_boxplot() +
+  labs(y = "Plant Heights (m)", x = "Melbourne Water Catchment") +
+  theme_classic() + theme(legend.position = c(0.8, 0.8)) +
+  theme(axis.text.x = element_text(size = 9, angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 9), axis.title.x = element_text(size=9),
+        axis.title.y = element_text(size=9), legend.title=element_text(size=9), 
+        legend.text=element_text(size=9))
+#labs(x= NULL, y = "Height (m)")
+# theme_classic() +
+# theme(axis.ticks.x = element_blank()) +
+# theme(axis.text.x = element_text(angle = 90))
+heightfig
+
+lmecon <- glmmTMB(mean ~ guard + pests + weeds2 + (1|site), data = heightdata)
+summary(lmecon) # change in condition 
+r.squaredGLMM(lmecon)
+plot_model(lmecon)
+coef(lmecon)
+
+############################ Individual Species ##########################################
+Mon_data2 <- filter(Mon_data, species != 'Dead Unknown')
+Indiv_data <- Mon_data2 %>%
+  group_by(site, species, lifeform) %>%
+  summarise_at(vars(total, alive), tibble::lst(mean, median))
+
+cma_sp <- Mon_data2 %>% 
+  group_by(species, catchment) %>%
+  summarise(number = n()) %>% tally(sort = T)
+
+#calculate the mean and CI for alive and total
+spdata_sp <- Indiv_data %>%
+  group_by(species, lifeform) %>%
+  summarise(n = n(), 
+            meantotal = mean(total_mean),
+            setotal = sd(total_mean)/sqrt(n()),
+            meanalive = mean(alive_mean),
+            sealive = sd(alive_mean)/sqrt(n()))
+Rich <- spdata_sp %>%
+  mutate(surv = meanalive / meantotal)
+#remove all species recorded at only 1 CMA
+#Rich <- filter(Rich, n != '1')
+#Rich <- filter(Rich, n != '2')
+# order by abundance
+spdata_sp <- Rich %>%
+  arrange(desc(-surv))
+
+#combine the 2 tables by species and arrange by CMA
+Species_data <- full_join(spdata_sp, cma_sp, by = "species") %>%
+  arrange(desc(n.y))
+
+# cut the first 20 rows
+Data_sp16 <-Species_data[1:16,]
+tail(Data_sp16)
+Data_sp16 <- dplyr::select (Data_sp16,-c(n.y))
+Data_sp16 <- dplyr::select (Data_sp16,-c(surv))
+#which(is.na(Sp_reshapeses))
+
+# reshaping of data (this is pretty messy sorry)
+Sp_reshape <- gather(Data_sp16, key = "variable", value = "mean", -c(species, lifeform, n.x, setotal, sealive))
+Sp_reshape <- subset(Sp_reshape, select = -c(setotal, sealive))
+Sp_reshapeses <- gather(Data_sp16, key = "variable", value = "error", -c(species, lifeform, n.x, meantotal, meanalive))
+Sp_reshape$error <- Sp_reshapeses$error
+Sp_reshape <- as.data.frame(Sp_reshape)
+
+## Question - how do I include CI in this plot
+Sp_reshape$variable <- factor(Sp_reshape$variable, levels = c("meantotal", "meanalive"))
+Sp_reshape$lifeform <- as.factor(Sp_reshape$lifeform)
+
+#reorder by lifeform, variable and mean (heighest to lowest)
+Sp_reshape <- Sp_reshape[with(Sp_reshape, order(lifeform, variable, -mean)),]
+Sp_reshape$species <- factor(Sp_reshape$species, levels = unique(Sp_reshape$species))
+#ggsave(path = path, width = width, height = height, device='jpeg', dpi=300)
+
+fig3 <- ggplot(Sp_reshape, aes(x = species, y = mean, fill = variable)) +
+  geom_bar(position=position_dodge(), stat="identity") +
+  geom_errorbar(aes(ymin=mean-error, ymax=mean+error), 
+                width=.2,
+                position=position_dodge(.9)) +
+  facet_grid(~ lifeform, scales = "free_x", space = "free") +
+  scale_fill_grey(start = 0.8, end = 0.6, name="Individual plant counts", breaks=c("meantotal", "meanalive"),
+                  labels=c("Total plants", "Alive plants")) + 
+  #scale_x_discrete(labels=c("Ozothamnus ferrugineus" = "Ozo. ferrugineus", "Leptospermum continentale" = "Lepto. continentale",
+  #                          "Leptospermum lanigerum" = "Lepto. lanigerum", "Cassinia aculeata subsp. aculeata" = "Cassinia aculeata", 
+  #                          "Allocasuarina verticillata" = "Allo. verticillata", 
+  #                          "Acacia verniciflua s.l." = "Acacia verniciflua")) +
+  labs(y = "Mean abundance per site", x = "Species") +
+  theme_classic() + theme(legend.position = c(0.7, 0.8)) +
+  theme(axis.text.x = element_text(size = 9, angle = 55, hjust = 1),
+        axis.text.y = element_text(size = 9), axis.title.x = element_text(size=9),
+        axis.title.y = element_text(size=9), legend.title=element_text(size=9), 
+        legend.text=element_text(size=9))
+fig3
+
+
+############################ Individual Species ##########################################
+Mon_data2 <- filter(Mon_data, species != 'Dead Unknown')
+Indiv_data <- Mon_data2 %>%
+  group_by(site, catchment, species, lifeform) %>%
+  summarise_at(vars(total, alive), tibble::lst(mean, median))
+Indiv_data <- filter(Indiv_data, catchment == 'Werribee')
+
+#calculate the mean and CI for alive and total
+spdata_sp <- Indiv_data %>%
+  group_by(species, lifeform) %>%
+  summarise(n = n(), 
+            meantotal = mean(total_mean),
+            setotal = sd(total_mean)/sqrt(n()),
+            meanalive = mean(alive_mean),
+            sealive = sd(alive_mean)/sqrt(n()))
+Rich <- spdata_sp %>%
+  mutate(surv = meanalive / meantotal)
+#remove all species recorded at only 1 CMA
+
+# order by abundance
+spdata_sp <- Rich %>%
+  arrange(desc(n))
+
+#combine the 2 tables by species and arrange by CMA
+#Species_data <- arrange(desc(n.x))
+
+# cut the first 20 rows
+Data_sp16 <-Species_data[1:10,]
+tail(Data_sp16)
+Data_sp16 <- dplyr::select (Data_sp16,-c(n.y))
+Data_sp16 <- dplyr::select (Data_sp16,-c(surv))
+#which(is.na(Sp_reshapeses))
+
+# reshaping of data (this is pretty messy sorry)
+Sp_reshape <- gather(Data_sp16, key = "variable", value = "mean", -c(species, lifeform, n.x, setotal, sealive))
+Sp_reshape <- subset(Sp_reshape, select = -c(setotal, sealive))
+Sp_reshapeses <- gather(Data_sp16, key = "variable", value = "error", -c(species, lifeform, n.x, meantotal, meanalive))
+Sp_reshape$error <- Sp_reshapeses$error
+Sp_reshape <- as.data.frame(Sp_reshape)
+
+## Question - how do I include CI in this plot
+Sp_reshape$variable <- factor(Sp_reshape$variable, levels = c("meantotal", "meanalive"))
+Sp_reshape$lifeform <- as.factor(Sp_reshape$lifeform)
+
+#reorder by lifeform, variable and mean (heighest to lowest)
+Sp_reshape <- Sp_reshape[with(Sp_reshape, order(lifeform, variable, -mean)),]
+Sp_reshape$species <- factor(Sp_reshape$species, levels = unique(Sp_reshape$species))
+#ggsave(path = path, width = width, height = height, device='jpeg', dpi=300)
+
+fig3 <- ggplot(Sp_reshape, aes(x = species, y = mean, fill = variable)) +
+  geom_bar(position=position_dodge(), stat="identity") +
+  geom_errorbar(aes(ymin=mean-error, ymax=mean+error), 
+                width=.2,
+                position=position_dodge(.9)) +
+  facet_grid(~ lifeform, scales = "free_x", space = "free") +
+  scale_fill_grey(start = 0.8, end = 0.6, name="Individual plant counts", breaks=c("meantotal", "meanalive"),
+                  labels=c("Total plants", "Alive plants")) + 
+  labs(y = "Mean abundance per site", x = "Species") +
+  theme_classic() + theme(legend.position = c(0.7, 0.8)) +
+  theme(axis.text.x = element_text(size = 9, angle = 55, hjust = 1),
+        axis.text.y = element_text(size = 9), axis.title.x = element_text(size=9),
+        axis.title.y = element_text(size=9), legend.title=element_text(size=9), 
+        legend.text=element_text(size=9))
+fig3
