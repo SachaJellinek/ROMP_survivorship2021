@@ -7,7 +7,7 @@ editor_options:
   chunk_output_type: console
 ---
   
-  ```{r setup, include=FALSE, warning=FALSE}
+```{r setup, include=FALSE, warning=FALSE}
 library(sf)
 library(tmap)
 library(skimr)
@@ -21,29 +21,64 @@ library(xlsx)
 #library(s2)
 library(tiff)
 library(raster)
+library(glmmTMB)
+library(lme4)
+library(emmeans)
+library(MuMIn)
+library(sjPlot)
+library(multcomp)
 #library(wesanderson)
 
 ```
 
-
-
-```{Loading data and shp files, r warning=FALSE}
 ## VegVisions data for HWS Mid-term
-This script:    
-  i) reads in, explores and tidies Survivorship data collected by SJellinek Nov 2021
+#This script:    
+#  i) reads in, explores and tidies Survivorship data collected by SJellinek Nov 2021
 
-Mon_data <- st_read("//research-cifs/2200-werg/wergProj/ROMP_Survivorship_2021/Data/survival_data_180322.csv")
-
-Mon_data <- read.csv(file="survival_data_180322.csv",na.strings=c("", "NA"),sep=",",head=TRUE)
-
+Mon_data <- st_read("~/uomShare/wergProj/ROMP_Survivorship_2021/Data/survival_data_180322.csv")
 str(Mon_data)
 names(Mon_data)
+loc_data <- st_read("~/uomShare/wergProj/ROMP_Survivorship_2021/ROMP_2021_sites.shp")
+MW_bound <- st_read("~/uomShare/wergProj/VegVisions/Mapping/MW Catchments/HWS_Catchments2.shp")
+Aridity_base <- st_read("~/uomShare/wergProj/VegVisions/Mapping/Aridity change/Aridity_baseline_1986_2005avg.shp")
+Aridity_base <- st_transform(Aridity_base,  crs = st_crs(loc_data))
+MW_subcatch <- st_read ("~/uomShare/wergProj/VegVisions/Mapping/MW Catchments/HWS_Subcatchments_region.shp")
+sites_aridity <- st_join(loc_data, Aridity_base, left = FALSE) %>% 
+  dplyr::select(site, CATCHMENT, SUBCATCHME, MEAN)
+#points = st_as_sf(loc_data, coords = c("Eastings", "Northings"), crs = utmCRS)
+#st_crs(points)
 
-Mon_data <- Mon_data %>% 
+df <- left_join(Mon_data, sites_aridity, by = 'site')
+str(df)
+
+Fig0 <- ggplot() +
+ # geom_sf(data = waterways, fill = "NA", colour = "blue", size = 0.4) +
+  geom_sf(data = loc_data, fill = "NA", color = "red", size = 2) +
+  geom_sf(data = MW_bound, fill = "NA", color = "black", size = 1) +
+  geom_sf_text(data = MW_bound, aes(label = CATCHMENT), colour = "black",
+               nudge_x =c(-0.3, 0.2, 0.615, -0.3, -0.36),
+               nudge_y = c(-0.05, 0.2, 0.01, 0.4, 0.3)) + 
+  annotation_scale(location = "bl", width_hint = 0.4) +
+  annotation_north_arrow(location = "bl", which_north = "true", 
+                         pad_x = unit(0.75, "in"), pad_y = unit(0.5, "in"),
+                         style = north_arrow_fancy_orienteering) +
+  xlab("Longitude") + ylab("Latitude") + theme_classic() +
+  guides(colour=guide_legend(title = "Vegetation Visions Score"))
+Fig0
+
+
+dat <- df %>% 
+  dplyr::mutate(belt = as.integer(belt), 
+                alive = as.integer(alive), 
+                total = as.integer(total), 
+                height = as.numeric(height), 
+                weeds = as.numeric(weeds))
+str(dat)
+dat <- dat %>% 
   mutate(weeds2 = (weeds/100))
 
-sp_abun1 <- Mon_data %>% 
-  group_by(site, catchment, belt, lifeform, pests, weeds2, guard) %>%
+sp_abun1 <- dat %>% 
+  group_by(site, catchment, belt, lifeform, pests, weeds2, guard, MEAN) %>%
   summarise_at(vars(total, alive), tibble::lst(mean, median))
 summaryabun <- sp_abun1 %>% mutate(percent=alive_mean/total_mean)
 summaryabun
@@ -78,24 +113,38 @@ summaryabun$pests <- as.factor(summaryabun$pests)
 summaryabun$lifeform <- as.factor(summaryabun$lifeform)
 str(summaryabun)
 
-lmecon <- glmmTMB((percent + 0.01)/1.02 ~ catchment + guard + pests + weeds2 + (1|site), data = summaryabun, family = 'beta_family')
+#summaryabun$percent[summaryabun$percent >= 1] <- 1
+lmecon <- glmmTMB((percent + 0.01)/1.02 ~ MEAN + pests + weeds2 + guard + (1|site), data = summaryabun, family = 'beta_family')
 summary(lmecon) # change in condition 
 r.squaredGLMM(lmecon)
 plot_model(lmecon)
 coef(lmecon)
 
-Lfmodel = lm(percent ~ catchment, data = summaryabun)
-Anova(Lfmodel)
-marginal = lsmeans(Lfmodel, ~ catchment)
+surv1_mod <- glmmTMB(cbind(alive_mean, total_mean) ~ MEAN + pests + weeds2 + guard + (1|site), data = summaryabun, family = "quasibinomial")
+summary(surv1_mod) # change in condition 
+plot_model(surv1_mod)
+
+overdisp_glmm <- function(surv1_mod) {
+  ## number of variance parameters in 
+  ##   an n-by-n variance-covariance matrix
+  vpars <- function(m) nrow(m)*(nrow(m)+1)/2
+  
+  model.df <- sum(sapply(lme4::VarCorr(surv1_mod),vpars))+length(lme4::fixef(surv1_mod))
+  rdf <- nrow(model.frame(surv1_mod))-model.df
+  rp <- residuals(model,type="pearson")
+  Pearson.chisq <- sum(rp^2)
+  prat <- Pearson.chisq/rdf
+  pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE)
+  c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)
+}
+Lfmodel = lm(percent ~ MEAN, data = summaryabun)
+aov(Lfmodel)
+marginal = lsmeans(Lfmodel, ~ MEAN)
 CLD = cld(marginal, alpha=0.05, Letters=letters, adjust="tukey")
 CLD
 CLD$.group=gsub(" ", "", CLD$.group)
 
-
-# identify variables
-Mon_data$height <- as.numeric(Mon_data$height)
-
-heightdata <- Mon_data %>% 
+heightdata <- dat %>% 
   group_by(site, catchment, belt, lifeform, species, pests, weeds2, guard) %>%
   summarise_at(vars(height), tibble::lst(mean, median), na.rm = TRUE)
 heightdata <- filter(heightdata, lifeform != 'Forb')
