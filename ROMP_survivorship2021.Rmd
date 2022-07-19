@@ -51,7 +51,25 @@ sites_aridity <- st_join(loc_data, Aridity_base, left = FALSE) %>%
 df <- left_join(Mon_data, sites_aridity, by = 'site')
 str(df)
 
-Fig0 <- ggplot() +
+Aridity <- ggplot (data = Aridity_base) +
+  geom_sf(aes(fill = MEAN), size = 0.5) + 
+    scale_fill_gradient(low = "white", high = "red") +
+  geom_sf(data = loc_data, color = "purple", size = 2) + 
+  geom_sf(data = MW_bound, fill = "NA", color = "black", size = 1)+
+  geom_sf_text(data = MW_bound, aes(label = CATCHMENT), colour = "black",
+               nudge_x =c(-0.3, 0.2, 0.615, -0.3, -0.36),
+               nudge_y = c(-0.05, 0.2, 0.01, 0.4, 0.3)) + 
+  annotation_scale(location = "bl", width_hint = 0.4) +
+  annotation_north_arrow(location = "bl", which_north = "true", 
+                         pad_x = unit(0.75, "in"), pad_y = unit(0.5, "in"),
+                         style = north_arrow_fancy_orienteering) +
+  xlab("Longitude") + ylab("Latitude") + theme_classic() +
+  guides(colour=guide_legend(title = "Mean aridity"))
+Aridity2050
+ggsave('~/uomShare/wergProj/VegVisions/Outputs/Aridity2050.jpeg', 
+       Aridity2050, device = "png", width = 13, height = 6, dpi = 300)
+
+Fig0 <- ggplot(loc_data) +
  # geom_sf(data = waterways, fill = "NA", colour = "blue", size = 0.4) +
   geom_sf(data = loc_data, fill = "NA", color = "red", size = 2) +
   geom_sf(data = MW_bound, fill = "NA", color = "black", size = 1) +
@@ -92,18 +110,21 @@ sp_abun1
 #Bar plot of species survival by catchment
 
 fig1 <- ggplot(sp_abun1, aes(x = reorder(catchment, -mean), y = mean)) +
-  geom_bar(position=position_dodge(), stat="identity") +
+  geom_bar(position=position_dodge(), stat="identity", fill="lightblue") +
   geom_errorbar(aes(ymin=mean-se, ymax=mean+se), 
                 width=.2,
                 position=position_dodge(.9)) +
   labs(y = "Percent survival per site", x = "Melbourne Water Catchment") +
   theme_classic() + theme(legend.position = c(0.8, 0.8)) +
-  theme(axis.text.x = element_text(size = 9, angle = 45, hjust = 1),
-        axis.text.y = element_text(size = 9), axis.title.x = element_text(size=9),
-        axis.title.y = element_text(size=9), legend.title=element_text(size=9), 
-        legend.text=element_text(size=9))
+  theme(axis.text.x = element_text(size = 11, angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 11), axis.title.x = element_text(size=9),
+        axis.title.y = element_text(size=11), legend.title=element_text(size=11), 
+        legend.text=element_text(size=11))+
+        ylim(0,1)
 
 fig1
+ggsave('~/uomShare/wergProj/ROMP_Survivorship_2021/barplot.jpeg', 
+       fig1, device = "png", width = 13, height = 6, dpi = 300)
 
 #  factors in the model
 summaryabun$catchment <- as.factor(summaryabun$catchment)
@@ -114,7 +135,7 @@ summaryabun$lifeform <- as.factor(summaryabun$lifeform)
 str(summaryabun)
 
 #summaryabun$percent[summaryabun$percent >= 1] <- 1
-lmecon <- glmmTMB((percent + 0.01)/1.02 ~ MEAN + pests + weeds2 + guard + (1|site), data = summaryabun, family = 'beta_family')
+lmecon <- glmmTMB((percent + 0.01)/1.02 ~ guard + (1|site), data = summaryabun, family = 'beta_family')
 summary(lmecon) # change in condition 
 r.squaredGLMM(lmecon)
 plot_model(lmecon)
@@ -137,7 +158,9 @@ overdisp_glmm <- function(surv1_mod) {
   pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE)
   c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)
 }
-Lfmodel = lm(percent ~ MEAN, data = summaryabun)
+lm(formula = percent ~ guard, data = summaryabun) 
+Lfmodel = lm(percent ~ guard, data = summaryabun)
+summary(Lfmodel)
 aov(Lfmodel)
 marginal = lsmeans(Lfmodel, ~ MEAN)
 CLD = cld(marginal, alpha=0.05, Letters=letters, adjust="tukey")
