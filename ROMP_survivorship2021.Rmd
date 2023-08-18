@@ -40,10 +40,14 @@ str(Mon_data)
 names(Mon_data)
 loc_data <- st_read("~/uomShare/wergProj/ROMP_Survivorship_2021/ROMP_2021_sites.shp")
 MW_bound <- st_read("~/uomShare/wergProj/VegVisions/Mapping/MW Catchments/HWS_Catchments2.shp")
+Aridity_2050 <- st_read("~/uomShare/wergProj/VegVisions/Mapping/Aridity change/Aridity_change_2050.shp")
+Aridity_2050 <- st_transform(Aridity_2050,  crs = st_crs(loc_data))
 Aridity_base <- st_read("~/uomShare/wergProj/VegVisions/Mapping/Aridity change/Aridity_baseline_1986_2005avg.shp")
 Aridity_base <- st_transform(Aridity_base,  crs = st_crs(loc_data))
 MW_subcatch <- st_read ("~/uomShare/wergProj/VegVisions/Mapping/MW Catchments/HWS_Subcatchments_region.shp")
 sites_aridity <- st_join(loc_data, Aridity_base, left = FALSE) %>% 
+  dplyr::select(site, CATCHMENT, SUBCATCHME, MEAN)
+sites_aridity2050 <- st_join(loc_data, Aridity_2050, left = FALSE) %>% 
   dplyr::select(site, CATCHMENT, SUBCATCHME, MEAN)
 #points = st_as_sf(loc_data, coords = c("Eastings", "Northings"), crs = utmCRS)
 #st_crs(points)
@@ -65,9 +69,9 @@ Aridity <- ggplot (data = Aridity_base) +
                          style = north_arrow_fancy_orienteering) +
   xlab("Longitude") + ylab("Latitude") + theme_classic() +
   guides(colour=guide_legend(title = "Mean aridity"))
-Aridity2050
-ggsave('~/uomShare/wergProj/VegVisions/Outputs/Aridity2050.jpeg', 
-       Aridity2050, device = "png", width = 13, height = 6, dpi = 300)
+Aridity
+ggsave('~/uomShare/wergProj/VegVisions/Outputs/Aridity.jpeg', 
+       Aridity, device = "png", width = 13, height = 6, dpi = 300)
 
 Fig0 <- ggplot(loc_data) +
  # geom_sf(data = waterways, fill = "NA", colour = "blue", size = 0.4) +
